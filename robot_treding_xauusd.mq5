@@ -577,7 +577,10 @@ double CalculateLotSize(double risk_percentage, double stop_loss_pips)
     double step_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
 
     // Adjust lot_size to be a multiple of step_lot and within min/max bounds
-    lot_size = floor(lot_size / step_lot) * step_lot; // Round down to the nearest step
+    if(step_lot>0)
+        lot_size = MathFloor(lot_size / step_lot) * step_lot; // Round down to nearest step
+    else
+        lot_size = min_lot;
     
     if(lot_size < min_lot)
         lot_size = min_lot;
