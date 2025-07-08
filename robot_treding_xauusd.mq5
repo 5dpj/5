@@ -33,6 +33,27 @@ input int    ATR_Period = 14;
 input double ATR_TakeProfit_Multiplier = 8.0; // مضاعف ATR لجني الأرباح
 input double Trailing_Stop_ATR_Multiplier = 2.0; // مضاعف ATR للوقف المتحرك
 
+// NEW ADVANCED PARAMETERS
+input ENUM_TIMEFRAMES Analysis_Timeframe = PERIOD_M1;   // الاطار الزمني للتحليل (افتراضي 1 دقيقة)
+
+// Risk Management
+input bool   Use_Risk_Management   = true;   // تفعيل إدارة المخاطر
+input double Risk_Percentage       = 1.0;    // نسبة المخاطرة من رصيد الحساب لكل صفقة
+input double SL_ATR_Multiplier     = 3.0;    // مضاعف ATR لوقف الخسارة
+
+// Spread Filter
+input bool   Use_Spread_Filter   = true;     // تفعيل فلتر السبريد
+input double Max_Spread_Points   = 30;       // أقصى سبريد مسموح (نقاط)
+
+// Session Filter (server time)
+input bool   Use_Session_Filter  = true;     // تفعيل فلتر جلسة التداول
+input int    Session_Start_Hour  = 8;        // بداية الجلسة
+input int    Session_End_Hour    = 18;       // نهاية الجلسة
+
+// News Filter
+input bool   Use_News_Filter     = false;    // تفعيل فلتر الأخبار
+input int    News_Avoidance_Minutes = 30;    // دقائق الابتعاد قبل/بعد الأخبار
+
 input bool   Use_Break_Even = true;  // استخدام نقطة التعادل
 input int    Break_Even_Pips = 30;   // عدد النقاط لنقطة التعادل (30 بيب) - سيتم تحويلها إلى نقاط فعليًا
 
@@ -88,30 +109,22 @@ int OnInit()
     // Explicit SetExpertMagic is often deprecated or not needed in recent builds.
     trade.SetDeviationInPoints(Slippage);
 
+    // Warn if EA attached to a different timeframe
+    if(_Period != Analysis_Timeframe)
+        Print("تنبيه: الإكسبيرت مُحسَّن لإطار ", EnumToString(Analysis_Timeframe), "، والإطار الحالي هو ", EnumToString(_Period), ".");
+
     // Initialize indicator handles
-    macd_handle = iMACD(_Symbol, _Period, MACD_Fast_EMA, MACD_Slow_EMA, MACD_Signal_SMA, PRICE_CLOSE);
-    if(macd_handle == INVALID_HANDLE) {
-        Print("Failed to create MACD indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
+    macd_handle = iMACD(_Symbol, Analysis_Timeframe, MACD_Fast_EMA, MACD_Slow_EMA, MACD_Signal_SMA, PRICE_CLOSE);
+    if(macd_handle == INVALID_HANDLE) { Print("Failed to create MACD indicator handle. Error: ", GetLastError()); return INIT_FAILED; }
 
-    rsi_handle = iRSI(_Symbol, _Period, RSI_Period, PRICE_CLOSE);
-    if(rsi_handle == INVALID_HANDLE) {
-        Print("Failed to create RSI indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
+    rsi_handle  = iRSI(_Symbol, Analysis_Timeframe, RSI_Period, PRICE_CLOSE);
+    if(rsi_handle == INVALID_HANDLE)  { Print("Failed to create RSI indicator handle. Error: ",  GetLastError()); return INIT_FAILED; }
 
-    bb_handle = iBands(_Symbol, _Period, BB_Period, 0, BB_Deviations, PRICE_CLOSE);
-    if(bb_handle == INVALID_HANDLE) {
-        Print("Failed to create Bollinger Bands indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
-    
-    atr_handle = iATR(_Symbol, _Period, ATR_Period);
-    if(atr_handle == INVALID_HANDLE) {
-        Print("Failed to create ATR indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
+    bb_handle   = iBands(_Symbol, Analysis_Timeframe, BB_Period, 0, BB_Deviations, PRICE_CLOSE);
+    if(bb_handle == INVALID_HANDLE)   { Print("Failed to create Bollinger Bands indicator handle. Error: ", GetLastError()); return INIT_FAILED; }
+
+    atr_handle  = iATR(_Symbol, Analysis_Timeframe, ATR_Period);
+    if(atr_handle == INVALID_HANDLE)  { Print("Failed to create ATR indicator handle. Error: ", GetLastError()); return INIT_FAILED; }
 
     Print("Expert Advisor Initialized Successfully!");
     return INIT_SUCCEEDED;
@@ -136,23 +149,17 @@ void OnDeinit(const int reason)
 void OnTick()
 {
     // Get latest tick data
-    if(!SymbolInfoTick(_Symbol, last_tick)) {
-        Print("Failed to get tick data for ", _Symbol, ". Error: ", GetLastError());
-        return;
-    }
+    if(!SymbolInfoTick(_Symbol, last_tick)) { Print("Failed to get tick data for ", _Symbol, ". Error: ", GetLastError()); return; }
 
-    // Check if a new bar has started (optional, depends on strategy)
+    // Detect new bar on analysis timeframe
     static datetime last_bar_time = 0;
-    datetime current_bar_time = (datetime)iTime(_Symbol, _Period, 0);
+    datetime current_bar_time = (datetime)iTime(_Symbol, Analysis_Timeframe, 0);
     if(current_bar_time != last_bar_time) {
         last_bar_time = current_bar_time;
-        // Perform actions that should happen once per bar, e.g., recalculate indicators
+        // Actions once per bar can be placed here
     }
 
-    // Manage existing open trades
     ManageOpenTrades();
-
-    // Check for new trade opportunities
     CheckForNewTrades();
 }
 
@@ -337,9 +344,13 @@ void ManageOpenTrades()
 //+------------------------------------------------------------------+
 void CheckForNewTrades()
 {
-    // Avoid opening multiple positions if any are already open
     if(PositionsTotal() > 0)
         return;
+
+    // Professional Filters
+    if(!IsSpreadAcceptable())      return;
+    if(!IsWithinTradingSession())  return;
+    if(IsHighImpactNewsTime())     return;
 
     // Arrays to store indicator values
     double macd_main_buffer[2]; // Need 2 values for shift 1 and 2
@@ -412,24 +423,21 @@ void CheckForNewTrades()
         buy_signal = true;
 
     if(buy_signal) {
-        double sl_price = NormalizeDouble(current_ask - (200 * _Point), _Digits); // Example fixed Stop Loss (20 pips)
-        double tp_price = NormalizeDouble(current_ask + take_profit_distance, _Digits); // Dynamic Take Profit
+        double sl_distance = SL_ATR_Multiplier * atr_value; // ATR based SL distance
+        double sl_price    = NormalizeDouble(current_ask - sl_distance, _Digits);
+        double stop_loss_pips = sl_distance / GetSymbolPipSize();
+        double lot_size = Use_Risk_Management ? CalculateLotSize(Risk_Percentage, stop_loss_pips) : Lots;
+        double tp_price   = NormalizeDouble(current_ask + take_profit_distance, _Digits);
 
-        // Ensure SL/TP are valid according to broker's stops level
-        // Adjust if too close to the current market price
-        if (sl_price >= current_ask - stops_level * _Point) {
+        if (sl_price >= current_ask - stops_level * _Point)
             sl_price = current_ask - stops_level * _Point;
-        }
-        if (tp_price <= current_ask + stops_level * _Point) {
+        if (tp_price <= current_ask + stops_level * _Point)
             tp_price = current_ask + stops_level * _Point;
-        }
 
-        // Pass Magic as a parameter as per the CTrade class definition you provided earlier
-        if(trade.Buy(Lots, _Symbol, current_ask, sl_price, tp_price, "Buy Order")) { 
-            PrintFormat("Buy Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", Lots, current_ask, sl_price, tp_price);
-        } else {
+        if(trade.Buy(lot_size, _Symbol, current_ask, sl_price, tp_price, "Buy Order"))
+            PrintFormat("Buy Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", lot_size, current_ask, sl_price, tp_price);
+        else
             PrintFormat("Failed to send Buy Order. Error: %d", GetLastError());
-        }
     }
 
     // --- Sell Signal ---
@@ -445,24 +453,21 @@ void CheckForNewTrades()
         sell_signal = true;
 
     if(sell_signal) {
-        double sl_price = NormalizeDouble(current_bid + (200 * _Point), _Digits); // Example fixed Stop Loss (20 pips)
-        double tp_price = NormalizeDouble(current_bid - take_profit_distance, _Digits); // Dynamic Take Profit
+        double sl_distance = SL_ATR_Multiplier * atr_value;
+        double sl_price    = NormalizeDouble(current_bid + sl_distance, _Digits);
+        double stop_loss_pips = sl_distance / GetSymbolPipSize();
+        double lot_size = Use_Risk_Management ? CalculateLotSize(Risk_Percentage, stop_loss_pips) : Lots;
+        double tp_price   = NormalizeDouble(current_bid - take_profit_distance, _Digits);
 
-        // Ensure SL/TP are valid according to broker's stops level
-        // Adjust if too close to the current market price
-        if (sl_price <= current_bid + stops_level * _Point) {
+        if (sl_price <= current_bid + stops_level * _Point)
             sl_price = current_bid + stops_level * _Point;
-        }
-        if (tp_price >= current_bid - stops_level * _Point) {
+        if (tp_price >= current_bid - stops_level * _Point)
             tp_price = current_bid - stops_level * _Point;
-        }
 
-        // Pass Magic as a parameter as per the CTrade class definition you provided earlier
-        if(trade.Sell(Lots, _Symbol, current_bid, sl_price, tp_price, "Sell Order")) { 
-            PrintFormat("Sell Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", Lots, current_bid, sl_price, tp_price);
-        } else {
+        if(trade.Sell(lot_size, _Symbol, current_bid, sl_price, tp_price, "Sell Order"))
+            PrintFormat("Sell Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", lot_size, current_bid, sl_price, tp_price);
+        else
             PrintFormat("Failed to send Sell Order. Error: %d", GetLastError());
-        }
     }
 }
 
@@ -496,6 +501,32 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 {
     // This function can be used to handle chart events like button clicks or object dragging.
     // For now, it's empty, but can be extended for interactive dashboards.
+}
+
+// --- Additional helper functions (Append after existing helpers) ---
+// Spread filter helper
+bool IsSpreadAcceptable()
+{
+    if(!Use_Spread_Filter) return true;
+    double spread_points = (GetCurrentAsk() - GetCurrentBid()) / _Point;
+    return (spread_points <= Max_Spread_Points);
+}
+
+// Session filter helper (server time assumed)
+bool IsWithinTradingSession()
+{
+    if(!Use_Session_Filter) return true;
+    datetime now = TimeCurrent();
+    int hour = TimeHour(now);
+    return (hour >= Session_Start_Hour && hour < Session_End_Hour);
+}
+
+// News filter placeholder (requires economic calendar functions)
+bool IsHighImpactNewsTime()
+{
+    if(!Use_News_Filter) return false;
+    // Placeholder: implement actual economic calendar check here
+    return false;
 }
 
 // --- Additional helper functions (if needed) ---
