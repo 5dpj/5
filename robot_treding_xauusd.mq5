@@ -1,119 +1,135 @@
 ﻿//+------------------------------------------------------------------+
-//|                                                Improved_EA.mq5|
-//|                        Copyright 2025, MetaQuotes Software Corp. |
-//|                                                  https://www.mql5.com |
+//|                                          robot_treding_xauusd.mq5|
+//|                               Professional XAUUSD Trading Robot |
+//|                     Optimized for 1-Minute Timeframe Trading    |
 //+------------------------------------------------------------------+
-#property copyright "2025, MetaQuotes Software Corp."
+#property copyright "2024, Professional Trading Systems"
 #property link      "https://www.mql5.com"
-#property version   "1.00"
-#property description "Expert Advisor with improved logic, error handling, and modern MQL5 practices."
+#property version   "2.50"
+#property description "Advanced XAUUSD Expert Advisor with multi-indicator confluence, session filters, and professional money management"
 #property strict
 
-// --- Input Parameters ---
-input double Lots = 0.01;            // حجم اللوت
-input int    Magic = 12345;          // الرقم السحري
-input int    Slippage = 5;           // الانزلاق السعري بالنقاط
+//+------------------------------------------------------------------+
+//| INPUT PARAMETERS                                                 |
+//+------------------------------------------------------------------+
 
-// MACD Parameters
-input int    MACD_Fast_EMA = 12;
-input int    MACD_Slow_EMA = 26;
-input int    MACD_Signal_SMA = 9;
+//--- General Settings
+input group "=== GENERAL SETTINGS ==="
+input double   InpLots                = 0.01;        // Lot Size (0=Auto)
+input int      InpMagicNumber         = 123456;      // Magic Number
+input int      InpSlippage            = 5;           // Maximum Slippage (points)
+input bool     InpAutoLotSize         = true;        // Use Automatic Lot Sizing
+input double   InpRiskPercent         = 2.0;         // Risk Per Trade (%)
+input int      InpMaxPositions        = 1;           // Maximum Open Positions
+input bool     InpUseTrailingStop     = true;        // Enable Trailing Stop
+input bool     InpUseBreakEven        = true;        // Enable Break Even
 
-// RSI Parameters
-input int    RSI_Period = 14;
-input double RSI_Buy_Level = 30.0;
-input double RSI_Sell_Level = 70.0;
+//--- Market Session Filters
+input group "=== SESSION FILTERS ==="
+input bool     InpTradeAsianSession   = false;       // Trade Asian Session (00:00-09:00 GMT)
+input bool     InpTradeLondonSession  = true;        // Trade London Session (08:00-17:00 GMT)
+input bool     InpTradeNewYorkSession = true;        // Trade New York Session (13:00-22:00 GMT)
+input bool     InpAvoidNews           = true;        // Avoid High Impact News
+input int      InpNewsFilterMinutes   = 30;          // News Filter Minutes Before/After
 
-// Bollinger Bands Parameters
-input int    BB_Period = 20;
-input double BB_Deviations = 2.0;
+//--- Technical Indicators Settings
+input group "=== TECHNICAL INDICATORS ==="
+input int      InpEMA_Fast            = 8;           // Fast EMA Period
+input int      InpEMA_Slow            = 21;          // Slow EMA Period
+input int      InpEMA_Trend           = 55;          // Trend EMA Period
+input int      InpRSI_Period          = 14;          // RSI Period
+input double   InpRSI_Oversold        = 30.0;        // RSI Oversold Level
+input double   InpRSI_Overbought      = 70.0;        // RSI Overbought Level
+input int      InpStoch_K             = 5;           // Stochastic %K Period
+input int      InpStoch_D             = 3;           // Stochastic %D Period
+input int      InpStoch_Slowing       = 3;           // Stochastic Slowing
+input int      InpMACD_Fast           = 12;          // MACD Fast Period
+input int      InpMACD_Slow           = 26;          // MACD Slow Period
+input int      InpMACD_Signal         = 9;           // MACD Signal Period
+input int      InpATR_Period          = 14;          // ATR Period
+input double   InpATR_Multiplier      = 2.5;         // ATR Multiplier for SL/TP
+input int      InpBB_Period           = 20;          // Bollinger Bands Period
+input double   InpBB_Deviation        = 2.0;         // Bollinger Bands Deviation
 
-// ATR Parameters for Take Profit and Trailing Stop
-input int    ATR_Period = 14;
-input double ATR_TakeProfit_Multiplier = 8.0; // مضاعف ATR لجني الأرباح
-input double Trailing_Stop_ATR_Multiplier = 2.0; // مضاعف ATR للوقف المتحرك
+//--- Advanced Settings
+input group "=== ADVANCED SETTINGS ==="
+input double   InpMinATR              = 0.0005;      // Minimum ATR for Trading
+input double   InpMaxSpread           = 0.0005;      // Maximum Spread (in price)
+input int      InpSignalConfirmBars   = 2;           // Signal Confirmation Bars
+input bool     InpUseTrendFilter      = true;        // Use Trend Filter
+input bool     InpUseVolatilityFilter = true;        // Use Volatility Filter
+input double   InpProfitTarget        = 3.0;         // Profit Target Multiplier
+input double   InpStopLoss            = 1.5;         // Stop Loss Multiplier
+input int      InpBreakEvenPips       = 20;          // Break Even Trigger (pips)
+input int      InpTrailingStart       = 25;          // Trailing Stop Start (pips)
+input int      InpTrailingStep        = 5;           // Trailing Stop Step (pips)
 
-input bool   Use_Break_Even = true;  // استخدام نقطة التعادل
-input int    Break_Even_Pips = 30;   // عدد النقاط لنقطة التعادل (30 بيب) - سيتم تحويلها إلى نقاط فعليًا
+//--- Money Management
+input group "=== MONEY MANAGEMENT ==="
+input double   InpMaxRiskPerDay       = 5.0;         // Maximum Daily Risk (%)
+input int      InpMaxTradesPerDay     = 10;          // Maximum Trades Per Day
+input double   InpEquityStopPercent   = 10.0;        // Equity Stop Percentage
+input bool     InpUseTimeFilter       = true;        // Use Time Filters
 
-input bool   Use_Trailing_Stop = true; // استخدام الوقف المتحرك
-input bool   Use_Dynamic_TakeProfit = true; // استخدام جني الأرباح المتحرك الديناميكي
+//+------------------------------------------------------------------+
+//| GLOBAL VARIABLES                                                 |
+//+------------------------------------------------------------------+
 
-// --- Global Variables ---
-#include <Trade/Trade.mqh> // Include CTrade class for trade operations
+#include <Trade/Trade.mqh>
+#include <Trade/PositionInfo.mqh>
+#include <Trade/AccountInfo.mqh>
 
-CTrade trade; // Global instance of CTrade class
-
-MqlTick last_tick; // To store the latest tick data
+CTrade         trade;
+CPositionInfo  position;
+CAccountInfo   account;
 
 // Indicator handles
-int macd_handle;
-int rsi_handle;
-int bb_handle;
-int atr_handle;
+int h_EMA_Fast, h_EMA_Slow, h_EMA_Trend;
+int h_RSI, h_Stochastic, h_MACD, h_ATR, h_BB;
 
-// Helper function to get current Bid/Ask price, accounting for potential zero values
-double GetCurrentBid() {
-    if(!SymbolInfoTick(_Symbol, last_tick)) {
-        Print("Failed to get tick data for ", _Symbol, ". Error: ", GetLastError());
-        return 0.0;
-    }
-    return last_tick.bid;
-}
+// Market structure variables
+double daily_high, daily_low, weekly_high, weekly_low;
+double support_level, resistance_level;
+datetime last_update_time;
 
-double GetCurrentAsk() {
-    if(!SymbolInfoTick(_Symbol, last_tick)) {
-        Print("Failed to get tick data for ", _Symbol, ". Error: ", GetLastError());
-        return 0.0;
-    }
-    return last_tick.ask;
-}
+// Trading statistics
+int trades_today = 0;
+double daily_profit = 0.0;
+datetime last_trade_date;
 
-// Function to calculate effective pip size based on symbol digits
-double GetSymbolPipSize() {
-    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-    if (digits == 3 || digits == 5) { // JPY pairs (3 digits) or typical 5-digit pairs
-        return _Point * 10;
-    }
-    return _Point; // 2 or 4 digit pairs
-}
+// Signal arrays
+double ema_fast[], ema_slow[], ema_trend[];
+double rsi[], stoch_main[], stoch_signal[];
+double macd_main[], macd_signal[], atr[];
+double bb_upper[], bb_middle[], bb_lower[];
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    // Initialize CTrade object
-    // The CTrade object automatically uses the EA's Magic number if the EA has one.
-    // Explicit SetExpertMagic is often deprecated or not needed in recent builds.
-    trade.SetDeviationInPoints(Slippage);
-
-    // Initialize indicator handles
-    macd_handle = iMACD(_Symbol, _Period, MACD_Fast_EMA, MACD_Slow_EMA, MACD_Signal_SMA, PRICE_CLOSE);
-    if(macd_handle == INVALID_HANDLE) {
-        Print("Failed to create MACD indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
-
-    rsi_handle = iRSI(_Symbol, _Period, RSI_Period, PRICE_CLOSE);
-    if(rsi_handle == INVALID_HANDLE) {
-        Print("Failed to create RSI indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
-
-    bb_handle = iBands(_Symbol, _Period, BB_Period, 0, BB_Deviations, PRICE_CLOSE);
-    if(bb_handle == INVALID_HANDLE) {
-        Print("Failed to create Bollinger Bands indicator handle. Error: ", GetLastError());
+    Print("Initializing Professional XAUUSD Trading Robot...");
+    
+    // Initialize trade object
+    trade.SetExpertMagicNumber(InpMagicNumber);
+    trade.SetDeviationInPoints(InpSlippage);
+    trade.SetTypeFilling(ORDER_FILLING_FOK);
+    trade.SetTypeTime(ORDER_TIME_GTC);
+    
+    // Initialize indicators
+    if(!InitializeIndicators())
+    {
+        Print("Failed to initialize indicators");
         return INIT_FAILED;
     }
     
-    atr_handle = iATR(_Symbol, _Period, ATR_Period);
-    if(atr_handle == INVALID_HANDLE) {
-        Print("Failed to create ATR indicator handle. Error: ", GetLastError());
-        return INIT_FAILED;
-    }
-
-    Print("Expert Advisor Initialized Successfully!");
+    // Initialize market structure
+    UpdateMarketStructure();
+    
+    // Set timer for periodic updates
+    EventSetTimer(60); // Update every minute
+    
+    Print("Professional XAUUSD Trading Robot initialized successfully!");
     return INIT_SUCCEEDED;
 }
 
@@ -123,11 +139,17 @@ int OnInit()
 void OnDeinit(const int reason)
 {
     // Release indicator handles
-    if (macd_handle != INVALID_HANDLE) IndicatorRelease(macd_handle);
-    if (rsi_handle != INVALID_HANDLE) IndicatorRelease(rsi_handle);
-    if (bb_handle != INVALID_HANDLE) IndicatorRelease(bb_handle);
-    if (atr_handle != INVALID_HANDLE) IndicatorRelease(atr_handle);
-    Print("Expert Advisor Deinitialized. Reason: ", reason);
+    IndicatorRelease(h_EMA_Fast);
+    IndicatorRelease(h_EMA_Slow);
+    IndicatorRelease(h_EMA_Trend);
+    IndicatorRelease(h_RSI);
+    IndicatorRelease(h_Stochastic);
+    IndicatorRelease(h_MACD);
+    IndicatorRelease(h_ATR);
+    IndicatorRelease(h_BB);
+    
+    EventKillTimer();
+    Print("Professional XAUUSD Trading Robot deinitialized. Reason: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -135,423 +157,577 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    // Get latest tick data
-    if(!SymbolInfoTick(_Symbol, last_tick)) {
-        Print("Failed to get tick data for ", _Symbol, ". Error: ", GetLastError());
-        return;
-    }
-
-    // Check if a new bar has started (optional, depends on strategy)
-    static datetime last_bar_time = 0;
-    datetime current_bar_time = (datetime)iTime(_Symbol, _Period, 0);
-    if(current_bar_time != last_bar_time) {
-        last_bar_time = current_bar_time;
-        // Perform actions that should happen once per bar, e.g., recalculate indicators
-    }
-
-    // Manage existing open trades
-    ManageOpenTrades();
-
+    // Basic checks
+    if(!IsNewBar()) return;
+    if(!PreTradeChecks()) return;
+    
+    // Update market structure
+    UpdateMarketStructure();
+    
+    // Update indicator values
+    if(!UpdateIndicators()) return;
+    
+    // Manage existing positions
+    ManagePositions();
+    
     // Check for new trade opportunities
-    CheckForNewTrades();
-}
-
-//+------------------------------------------------------------------+
-//| Function to manage open trades (Break-Even, Trailing Stop, Dynamic Take Profit) |
-//+------------------------------------------------------------------+
-void ManageOpenTrades()
-{
-    // Get latest tick data for current prices
-    double current_bid = GetCurrentBid();
-    double current_ask = GetCurrentAsk();
-    if (current_bid == 0.0 || current_ask == 0.0) return; // Error in getting tick, return
-
-    // Calculate ATR for dynamic levels
-    double atr_values[1]; // Array to store ATR value
-    // Get ATR value for the current bar (shift 0) as it represents current volatility
-    if(CopyBuffer(atr_handle, 0, 0, 1, atr_values) <= 0) {
-        Print("Failed to get ATR value. Error: ", GetLastError());
-        return;
-    }
-    double atr_value = atr_values[0];
-
-    if(atr_value == 0) {
-        Print("ATR value is zero, cannot calculate dynamic levels.");
-        return;
-    }
-
-    // Get symbol stop level (minimum distance for SL/TP from current price)
-    // FIX: SYMBOL_TRADE_STOPS_LEVEL returns an integer, use SymbolInfoInteger
-    long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL); // Value is in points
-
-    // Iterate through all open positions
-    for(int i = PositionsTotal() - 1; i >= 0; i--) {
-        ulong position_ticket = PositionGetTicket(i);
-        if(!PositionSelectByTicket(position_ticket)) {
-            Print("Failed to select position ", position_ticket, ". Error: ", GetLastError());
-            continue;
-        }
-
-        // Ensure the position belongs to this EA and symbol using the Magic number
-        // CTrade implicitly uses the EA's magic number, so this check is valid.
-        if(PositionGetInteger(POSITION_MAGIC) != Magic || PositionGetString(POSITION_SYMBOL) != _Symbol)
-            continue;
-
-        ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-        double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
-        double current_sl = PositionGetDouble(POSITION_SL);
-        double current_tp = PositionGetDouble(POSITION_TP);
-        double current_position_price = (type == POSITION_TYPE_BUY ? current_bid : current_ask); // Use bid for buy, ask for sell for current market price reference
-
-        // Normalize prices to symbol's digits
-        open_price = NormalizeDouble(open_price, _Digits);
-        current_sl = NormalizeDouble(current_sl, _Digits);
-        current_tp = NormalizeDouble(current_tp, _Digits);
-
-        // --- Break-Even Logic ---
-        if(Use_Break_Even) {
-            double profit_in_points = (type == POSITION_TYPE_BUY) ? (current_position_price - open_price) / _Point : (open_price - current_position_price) / _Point;
-            
-            // Convert Break_Even_Pips (input) to actual points based on GetSymbolPipSize()
-            double break_even_points = Break_Even_Pips * (GetSymbolPipSize() / _Point);
-
-            if(profit_in_points >= break_even_points) {
-                double new_sl_be = open_price; // Move SL to open price
-                new_sl_be = NormalizeDouble(new_sl_be, _Digits); // Normalize to account for symbol's digits
-
-                bool modify_sl = false;
-                if (type == POSITION_TYPE_BUY) {
-                    // For BUY, new SL must be greater than current SL, or if current SL is not set (0)
-                    if (new_sl_be > current_sl || current_sl == 0.0) {
-                        modify_sl = true;
-                    }
-                } else { // POSITION_TYPE_SELL
-                    // For SELL, new SL must be less than current SL, or if current SL is not set (0)
-                    if (new_sl_be < current_sl || current_sl == 0.0) {
-                        modify_sl = true;
-                    }
-                }
-                
-                if (modify_sl) {
-                    // Make sure the new SL is not too close to the current price (broker restrictions)
-                    if (type == POSITION_TYPE_BUY) {
-                        if (new_sl_be >= current_position_price - stops_level * _Point) {
-                            new_sl_be = current_position_price - stops_level * _Point;
-                        }
-                    } else { // POSITION_TYPE_SELL
-                        if (new_sl_be <= current_position_price + stops_level * _Point) {
-                            new_sl_be = current_position_price + stops_level * _Point;
-                        }
-                    }
-                    
-                    if (trade.PositionModify(position_ticket, new_sl_be, current_tp)) {
-                        PrintFormat("Position #%I64d: Moved SL to Break-Even (%.5f). Current TP: %.5f", position_ticket, new_sl_be, current_tp);
-                    } else {
-                        PrintFormat("Failed to move SL to Break-Even for #%I64d. Error: %d", position_ticket, GetLastError());
-                    }
-                }
-            }
-        }
-
-        // --- Trailing Stop Logic ---
-        if(Use_Trailing_Stop) {
-            double trailing_distance = Trailing_Stop_ATR_Multiplier * atr_value; // Distance in price points
-            double new_sl_ts = 0;
-
-            if(type == POSITION_TYPE_BUY) {
-                new_sl_ts = current_position_price - trailing_distance; // For BUY, SL is below current price
-                new_sl_ts = NormalizeDouble(new_sl_ts, _Digits);
-
-                // Only move SL if it's higher than current SL (or current SL is 0, meaning not set yet)
-                // And ensure it's not violating the stops level
-                if (new_sl_ts > current_sl || current_sl == 0.0) { 
-                    // Make sure the new SL is not too close to the current price (broker restrictions)
-                    if (new_sl_ts >= current_position_price - stops_level * _Point) {
-                        new_sl_ts = current_position_price - stops_level * _Point;
-                    }
-                    if (trade.PositionModify(position_ticket, new_sl_ts, current_tp)) {
-                        PrintFormat("Position #%I64d: Trailing SL to %.5f. Current TP: %.5f", position_ticket, new_sl_ts, current_tp);
-                    } else {
-                        PrintFormat("Failed to trail SL for #%I64d. Error: %d", position_ticket, GetLastError());
-                    }
-                }
-            } else { // POSITION_TYPE_SELL
-                new_sl_ts = current_position_price + trailing_distance; // For SELL, SL is above current price
-                new_sl_ts = NormalizeDouble(new_sl_ts, _Digits);
-
-                // Only move SL if it's lower than current SL (or current SL is 0, meaning not set yet)
-                // And ensure it's not violating the stops level
-                if (new_sl_ts < current_sl || current_sl == 0.0) { 
-                    // Make sure the new SL is not too close to the current price (broker restrictions)
-                    if (new_sl_ts <= current_position_price + stops_level * _Point) {
-                        new_sl_ts = current_position_price + stops_level * _Point;
-                    }
-                    if (trade.PositionModify(position_ticket, new_sl_ts, current_tp)) {
-                        PrintFormat("Position #%I64d: Trailing SL to %.5f. Current TP: %.5f", position_ticket, new_sl_ts, current_tp);
-                    } else {
-                        PrintFormat("Failed to trail SL for #%I64d. Error: %d", position_ticket, GetLastError());
-                    }
-                }
-            }
-        }
-        
-        // --- Dynamic Take Profit Logic ---
-        if (Use_Dynamic_TakeProfit) {
-            double dynamic_tp_distance = ATR_TakeProfit_Multiplier * atr_value;
-            double new_tp = 0;
-            
-            if (type == POSITION_TYPE_BUY) {
-                new_tp = open_price + dynamic_tp_distance; // TP for buy is above open price
-            } else { // POSITION_TYPE_SELL
-                new_tp = open_price - dynamic_tp_distance; // TP for sell is below open price
-            }
-            new_tp = NormalizeDouble(new_tp, _Digits);
-            
-            // Only modify TP if it's different from the current TP and valid
-            // Check for minimum distance from current price to avoid broker errors
-            bool is_tp_valid = true;
-            if (type == POSITION_TYPE_BUY) {
-                if (new_tp <= current_position_price + stops_level * _Point) {
-                    is_tp_valid = false; // TP is too close to current price
-                }
-            } else { // POSITION_TYPE_SELL
-                if (new_tp >= current_position_price - stops_level * _Point) {
-                    is_tp_valid = false; // TP is too close to current price
-                }
-            }
-
-
-            if (is_tp_valid && MathAbs(new_tp - current_tp) > _Point) { // Compare with a small tolerance
-                if (trade.PositionModify(position_ticket, current_sl, new_tp)) {
-                    PrintFormat("Position #%I64d: Dynamically adjusted TP to %.5f. Current SL: %.5f", position_ticket, new_tp, current_sl);
-                } else {
-                    PrintFormat("Failed to dynamically adjust TP for #%I64d. Error: %d", position_ticket, GetLastError());
-                }
-            }
-        }
-    }
-}
-
-//+------------------------------------------------------------------+
-//| Function to check for new trade opportunities                    |
-//+------------------------------------------------------------------+
-void CheckForNewTrades()
-{
-    // Avoid opening multiple positions if any are already open
-    if(PositionsTotal() > 0)
-        return;
-
-    // Arrays to store indicator values
-    double macd_main_buffer[2]; // Need 2 values for shift 1 and 2
-    double macd_signal_buffer[2]; // Need 2 values for shift 1 and 2
-    double rsi_buffer[1]; // Need 1 value for shift 1
-    double bb_upper_buffer[1]; // Need 1 value for shift 1
-    double bb_lower_buffer[1]; // Need 1 value for shift 1
-    double atr_values[1]; // Need 1 value for shift 0
-
-    // Get MACD values for previous two bars (shift 1 and 2 for crossovers)
-    // CopyBuffer(indicator_handle, buffer_index, start_index, count, array)
-    // Shift 1 is array[0], Shift 2 is array[1] when you copy 2 values starting from shift 1
-    if(CopyBuffer(macd_handle, 0, 1, 2, macd_main_buffer) <= 0 || CopyBuffer(macd_handle, 1, 1, 2, macd_signal_buffer) <= 0) {
-        Print("Failed to get MACD values. Error: ", GetLastError());
-        return;
-    }
-    double macd_main_prev = macd_main_buffer[0];   // Value on the previous bar (shift 1)
-    double macd_signal_prev = macd_signal_buffer[0]; // Value on the previous bar (shift 1)
-    double macd_main_prev2 = macd_main_buffer[1];   // Value two bars ago (shift 2)
-    double macd_signal_prev2 = macd_signal_buffer[1]; // Value two bars ago (shift 2)
-
-    // Get RSI value for previous bar (shift 1)
-    if(CopyBuffer(rsi_handle, 0, 1, 1, rsi_buffer) <= 0) {
-        Print("Failed to get RSI value. Error: ", GetLastError());
-        return;
-    }
-    double rsi_value_prev = rsi_buffer[0]; // Value on the previous bar (shift 1)
-
-    // Get Bollinger Bands values for previous bar (shift 1)
-    if(CopyBuffer(bb_handle, 0, 1, 1, bb_upper_buffer) <= 0 || CopyBuffer(bb_handle, 1, 1, 1, bb_lower_buffer) <= 0) {
-        Print("Failed to get Bollinger Bands values. Error: ", GetLastError());
-        return;
-    }
-    double bb_upper_prev = bb_upper_buffer[0]; // Value on the previous bar (shift 1)
-    double bb_lower_prev = bb_lower_buffer[0]; // Value on the previous bar (shift 1)
-
-    // Get ATR value for the current bar (shift 0) for initial TP setting
-    if(CopyBuffer(atr_handle, 0, 0, 1, atr_values) <= 0) {
-        Print("Failed to get ATR value. Error: ", GetLastError());
-        return;
-    }
-    double atr_value = atr_values[0];
-
-    if(atr_value == 0) {
-        Print("ATR value is zero, cannot calculate Take Profit.");
-        return;
+    if(PositionsTotal() < InpMaxPositions)
+    {
+        CheckTradeSignals();
     }
     
-    double take_profit_distance = ATR_TakeProfit_Multiplier * atr_value;
-
-    // Get current prices
-    double current_bid = GetCurrentBid();
-    double current_ask = GetCurrentAsk();
-    if (current_bid == 0.0 || current_ask == 0.0) return;
-
-    // Get symbol stop levels (minimum distance for SL/TP from current price)
-    // FIX: SYMBOL_TRADE_STOPS_LEVEL returns an integer, use SymbolInfoInteger
-    long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL); // Value is in points
-
-    // --- Buy Signal ---
-    bool buy_signal = false;
-    // MACD crossover buy: Main line crosses above Signal line
-    if(macd_main_prev > macd_signal_prev && macd_main_prev2 <= macd_signal_prev2)
-        buy_signal = true;
-    // RSI oversold
-    if(rsi_value_prev < RSI_Buy_Level)
-        buy_signal = true;
-    // Price below lower Bollinger Band
-    if(current_bid < bb_lower_prev)
-        buy_signal = true;
-
-    if(buy_signal) {
-        double sl_price = NormalizeDouble(current_ask - (200 * _Point), _Digits); // Example fixed Stop Loss (20 pips)
-        double tp_price = NormalizeDouble(current_ask + take_profit_distance, _Digits); // Dynamic Take Profit
-
-        // Ensure SL/TP are valid according to broker's stops level
-        // Adjust if too close to the current market price
-        if (sl_price >= current_ask - stops_level * _Point) {
-            sl_price = current_ask - stops_level * _Point;
-        }
-        if (tp_price <= current_ask + stops_level * _Point) {
-            tp_price = current_ask + stops_level * _Point;
-        }
-
-        // Pass Magic as a parameter as per the CTrade class definition you provided earlier
-        if(trade.Buy(Lots, _Symbol, current_ask, sl_price, tp_price, "Buy Order")) { 
-            PrintFormat("Buy Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", Lots, current_ask, sl_price, tp_price);
-        } else {
-            PrintFormat("Failed to send Buy Order. Error: %d", GetLastError());
-        }
-    }
-
-    // --- Sell Signal ---
-    bool sell_signal = false;
-    // MACD crossover sell: Main line crosses below Signal line
-    if(macd_main_prev < macd_signal_prev && macd_main_prev2 >= macd_signal_prev2)
-        sell_signal = true;
-    // RSI overbought
-    if(rsi_value_prev > RSI_Sell_Level)
-        sell_signal = true;
-    // Price above upper Bollinger Band
-    if(current_ask > bb_upper_prev)
-        sell_signal = true;
-
-    if(sell_signal) {
-        double sl_price = NormalizeDouble(current_bid + (200 * _Point), _Digits); // Example fixed Stop Loss (20 pips)
-        double tp_price = NormalizeDouble(current_bid - take_profit_distance, _Digits); // Dynamic Take Profit
-
-        // Ensure SL/TP are valid according to broker's stops level
-        // Adjust if too close to the current market price
-        if (sl_price <= current_bid + stops_level * _Point) {
-            sl_price = current_bid + stops_level * _Point;
-        }
-        if (tp_price >= current_bid - stops_level * _Point) {
-            tp_price = current_bid - stops_level * _Point;
-        }
-
-        // Pass Magic as a parameter as per the CTrade class definition you provided earlier
-        if(trade.Sell(Lots, _Symbol, current_bid, sl_price, tp_price, "Sell Order")) { 
-            PrintFormat("Sell Order Sent: Lots=%.2f, Price=%.5f, SL=%.5f, TP=%.5f", Lots, current_bid, sl_price, tp_price);
-        } else {
-            PrintFormat("Failed to send Sell Order. Error: %d", GetLastError());
-        }
-    }
+    // Update daily statistics
+    UpdateDailyStats();
 }
 
 //+------------------------------------------------------------------+
-//| OnTradeTransaction function (for asynchronous trade event handling)|
-//+------------------------------------------------------------------+
-void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
-{
-    if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
-        PrintFormat("Deal #%I64d executed. Order: %I64d, Position: %I64d, Type: %s, Price: %.5f, Volume: %.2f",
-                    trans.deal, trans.order, trans.position, EnumToString(trans.type), trans.price, trans.volume);
-    } else if(trans.type == TRADE_TRANSACTION_ORDER_ADD) {
-        PrintFormat("Order #%I64d placed. Symbol: %s, Type: %s, Price: %.5f, Volume: %.2f",
-                    trans.order, trans.symbol, EnumToString(trans.type), trans.price, trans.volume);
-    }
-}
-
-//+------------------------------------------------------------------+
-//| OnTimer function (for periodic tasks)                            |
+//| Timer function                                                   |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-    // This function can be used for periodic tasks that don't need to run on every tick.
-    // For now, it's empty, but can be extended.
+    UpdateMarketStructure();
+    CheckSessionTimes();
 }
 
 //+------------------------------------------------------------------+
-//| OnChartEvent function (for user interaction)                     |
+//| Initialize all indicators                                        |
 //+------------------------------------------------------------------+
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+bool InitializeIndicators()
 {
-    // This function can be used to handle chart events like button clicks or object dragging.
-    // For now, it's empty, but can be extended for interactive dashboards.
-}
-
-// --- Additional helper functions (if needed) ---
-// Example: Function to check if market is open
-bool IsMarketOpen()
-{
-    long trade_mode_long; 
-    if(!SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE, trade_mode_long)) {
-        Print("Failed to get trade mode for ", _Symbol, ". Error: ", GetLastError());
+    // EMA indicators
+    h_EMA_Fast = iMA(_Symbol, PERIOD_M1, InpEMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
+    h_EMA_Slow = iMA(_Symbol, PERIOD_M1, InpEMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+    h_EMA_Trend = iMA(_Symbol, PERIOD_M1, InpEMA_Trend, 0, MODE_EMA, PRICE_CLOSE);
+    
+    // Oscillators
+    h_RSI = iRSI(_Symbol, PERIOD_M1, InpRSI_Period, PRICE_CLOSE);
+    h_Stochastic = iStochastic(_Symbol, PERIOD_M1, InpStoch_K, InpStoch_D, InpStoch_Slowing, MODE_SMA, STO_LOWHIGH);
+    h_MACD = iMACD(_Symbol, PERIOD_M1, InpMACD_Fast, InpMACD_Slow, InpMACD_Signal, PRICE_CLOSE);
+    
+    // Volatility and trend indicators
+    h_ATR = iATR(_Symbol, PERIOD_M1, InpATR_Period);
+    h_BB = iBands(_Symbol, PERIOD_M1, InpBB_Period, 0, InpBB_Deviation, PRICE_CLOSE);
+    
+    // Check if all indicators are created successfully
+    if(h_EMA_Fast == INVALID_HANDLE || h_EMA_Slow == INVALID_HANDLE || 
+       h_EMA_Trend == INVALID_HANDLE || h_RSI == INVALID_HANDLE ||
+       h_Stochastic == INVALID_HANDLE || h_MACD == INVALID_HANDLE ||
+       h_ATR == INVALID_HANDLE || h_BB == INVALID_HANDLE)
+    {
+        Print("Error creating indicators");
         return false;
     }
-    // Using the numerical values for the enums, as the enum names seem to be problematic
-    // SYMBOL_TRADE_MODE_FULL = 0, SYMBOL_TRADE_MODE_CLOSE_ONLY = 1
-    return (trade_mode_long == 0 || trade_mode_long == 1); 
+    
+    // Initialize arrays
+    ArraySetAsSeries(ema_fast, true);
+    ArraySetAsSeries(ema_slow, true);
+    ArraySetAsSeries(ema_trend, true);
+    ArraySetAsSeries(rsi, true);
+    ArraySetAsSeries(stoch_main, true);
+    ArraySetAsSeries(stoch_signal, true);
+    ArraySetAsSeries(macd_main, true);
+    ArraySetAsSeries(macd_signal, true);
+    ArraySetAsSeries(atr, true);
+    ArraySetAsSeries(bb_upper, true);
+    ArraySetAsSeries(bb_middle, true);
+    ArraySetAsSeries(bb_lower, true);
+    
+    return true;
 }
 
-// Example: Function to calculate lot size based on risk
-double CalculateLotSize(double risk_percentage, double stop_loss_pips)
+//+------------------------------------------------------------------+
+//| Update indicator values                                          |
+//+------------------------------------------------------------------+
+bool UpdateIndicators()
 {
-    if(stop_loss_pips <= 0 || risk_percentage <= 0)
-        return 0.0;
-
-    double account_balance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double risk_amount = account_balance * (risk_percentage / 100.0);
+    // Get indicator values
+    if(CopyBuffer(h_EMA_Fast, 0, 0, 3, ema_fast) < 3) return false;
+    if(CopyBuffer(h_EMA_Slow, 0, 0, 3, ema_slow) < 3) return false;
+    if(CopyBuffer(h_EMA_Trend, 0, 0, 3, ema_trend) < 3) return false;
+    if(CopyBuffer(h_RSI, 0, 0, 3, rsi) < 3) return false;
+    if(CopyBuffer(h_Stochastic, 0, 0, 3, stoch_main) < 3) return false;
+    if(CopyBuffer(h_Stochastic, 1, 0, 3, stoch_signal) < 3) return false;
+    if(CopyBuffer(h_MACD, 0, 0, 3, macd_main) < 3) return false;
+    if(CopyBuffer(h_MACD, 1, 0, 3, macd_signal) < 3) return false;
+    if(CopyBuffer(h_ATR, 0, 0, 3, atr) < 3) return false;
+    if(CopyBuffer(h_BB, 1, 0, 3, bb_upper) < 3) return false;
+    if(CopyBuffer(h_BB, 0, 0, 3, bb_middle) < 3) return false;
+    if(CopyBuffer(h_BB, 2, 0, 3, bb_lower) < 3) return false;
     
-    // Calculate the value of one pip for the current symbol and lot size of 1.0
-    // A pip is defined by GetSymbolPipSize()
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check if new bar has formed                                     |
+//+------------------------------------------------------------------+
+bool IsNewBar()
+{
+    static datetime last_time = 0;
+    datetime current_time = (datetime)SeriesInfoInteger(Symbol(), PERIOD_M1, SERIES_LASTBAR_DATE);
+    
+    if(last_time != current_time)
+    {
+        last_time = current_time;
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Pre-trade checks                                                |
+//+------------------------------------------------------------------+
+bool PreTradeChecks()
+{
+    // Check if trading is allowed
+    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || 
+       !MQLInfoInteger(MQL_TRADE_ALLOWED) ||
+       !AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+    {
+        return false;
+    }
+    
+    // Check spread
+    double spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    if(spread > InpMaxSpread)
+    {
+        return false;
+    }
+    
+    // Check ATR for minimum volatility
+    if(InpUseVolatilityFilter && atr[0] < InpMinATR)
+    {
+        return false;
+    }
+    
+    // Check daily limits
+    if(trades_today >= InpMaxTradesPerDay)
+    {
+        return false;
+    }
+    
+    if(daily_profit <= -InpMaxRiskPerDay * account.Balance() / 100.0)
+    {
+        return false;
+    }
+    
+    // Check trading sessions
+    if(InpUseTimeFilter && !IsValidTradingTime())
+    {
+        return false;
+    }
+    
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check if current time is valid for trading                      |
+//+------------------------------------------------------------------+
+bool IsValidTradingTime()
+{
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    int current_hour = dt.hour;
+    
+    // Convert to GMT
+    current_hour = (current_hour + (int)TimeGMTOffset()/3600) % 24;
+    
+    bool valid_session = false;
+    
+    // Asian Session (00:00-09:00 GMT)
+    if(InpTradeAsianSession && current_hour >= 0 && current_hour < 9)
+        valid_session = true;
+    
+    // London Session (08:00-17:00 GMT)
+    if(InpTradeLondonSession && current_hour >= 8 && current_hour < 17)
+        valid_session = true;
+    
+    // New York Session (13:00-22:00 GMT)
+    if(InpTradeNewYorkSession && current_hour >= 13 && current_hour < 22)
+        valid_session = true;
+    
+    return valid_session;
+}
+
+//+------------------------------------------------------------------+
+//| Update market structure levels                                  |
+//+------------------------------------------------------------------+
+void UpdateMarketStructure()
+{
+    datetime current_time = TimeCurrent();
+    
+    // Update daily levels
+    daily_high = iHigh(_Symbol, PERIOD_D1, 0);
+    daily_low = iLow(_Symbol, PERIOD_D1, 0);
+    
+    // Update weekly levels
+    weekly_high = iHigh(_Symbol, PERIOD_W1, 0);
+    weekly_low = iLow(_Symbol, PERIOD_W1, 0);
+    
+    // Calculate dynamic support and resistance
+    CalculateSupportResistance();
+    
+    last_update_time = current_time;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate dynamic support and resistance levels                 |
+//+------------------------------------------------------------------+
+void CalculateSupportResistance()
+{
+    double highs[20], lows[20];
+    
+    // Get recent highs and lows
+    for(int i = 0; i < 20; i++)
+    {
+        highs[i] = iHigh(_Symbol, PERIOD_M5, i);
+        lows[i] = iLow(_Symbol, PERIOD_M5, i);
+    }
+    
+    // Find significant levels
+    resistance_level = highs[ArrayMaximum(highs)];
+    support_level = lows[ArrayMinimum(lows)];
+}
+
+//+------------------------------------------------------------------+
+//| Check for trade signals                                         |
+//+------------------------------------------------------------------+
+void CheckTradeSignals()
+{
+    double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    // Get trend direction
+    int trend = GetTrendDirection();
+    
+    // Check buy signals
+    if(IsBuySignal(trend, current_price))
+    {
+        OpenBuyPosition();
+    }
+    // Check sell signals
+    else if(IsSellSignal(trend, current_price))
+    {
+        OpenSellPosition();
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Get trend direction                                             |
+//+------------------------------------------------------------------+
+int GetTrendDirection()
+{
+    int trend_score = 0;
+    
+    // EMA trend analysis
+    if(ema_fast[0] > ema_slow[0] && ema_slow[0] > ema_trend[0])
+        trend_score += 2; // Strong bullish
+    else if(ema_fast[0] > ema_slow[0])
+        trend_score += 1; // Mild bullish
+    else if(ema_fast[0] < ema_slow[0] && ema_slow[0] < ema_trend[0])
+        trend_score -= 2; // Strong bearish
+    else if(ema_fast[0] < ema_slow[0])
+        trend_score -= 1; // Mild bearish
+    
+    // MACD trend confirmation
+    if(macd_main[0] > macd_signal[0] && macd_main[0] > 0)
+        trend_score += 1;
+    else if(macd_main[0] < macd_signal[0] && macd_main[0] < 0)
+        trend_score -= 1;
+    
+    return trend_score;
+}
+
+//+------------------------------------------------------------------+
+//| Check buy signal conditions                                     |
+//+------------------------------------------------------------------+
+bool IsBuySignal(int trend, double price)
+{
+    int signal_count = 0;
+    
+    // Trend filter
+    if(InpUseTrendFilter && trend < 0) return false;
+    
+    // EMA crossover
+    if(ema_fast[0] > ema_slow[0] && ema_fast[1] <= ema_slow[1])
+        signal_count++;
+    
+    // RSI oversold
+    if(rsi[0] < InpRSI_Oversold && rsi[0] > rsi[1])
+        signal_count++;
+    
+    // Stochastic oversold crossover
+    if(stoch_main[0] > stoch_signal[0] && stoch_main[1] <= stoch_signal[1] && stoch_main[0] < 20)
+        signal_count++;
+    
+    // MACD bullish crossover
+    if(macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1])
+        signal_count++;
+    
+    // Bollinger Bands bounce from lower band
+    if(price <= bb_lower[0] && iClose(_Symbol, PERIOD_M1, 1) > bb_lower[1])
+        signal_count++;
+    
+    // Price above key support
+    if(price > support_level && price < support_level + atr[0])
+        signal_count++;
+    
+    return signal_count >= InpSignalConfirmBars;
+}
+
+//+------------------------------------------------------------------+
+//| Check sell signal conditions                                    |
+//+------------------------------------------------------------------+
+bool IsSellSignal(int trend, double price)
+{
+    int signal_count = 0;
+    
+    // Trend filter
+    if(InpUseTrendFilter && trend > 0) return false;
+    
+    // EMA crossover
+    if(ema_fast[0] < ema_slow[0] && ema_fast[1] >= ema_slow[1])
+        signal_count++;
+    
+    // RSI overbought
+    if(rsi[0] > InpRSI_Overbought && rsi[0] < rsi[1])
+        signal_count++;
+    
+    // Stochastic overbought crossover
+    if(stoch_main[0] < stoch_signal[0] && stoch_main[1] >= stoch_signal[1] && stoch_main[0] > 80)
+        signal_count++;
+    
+    // MACD bearish crossover
+    if(macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1])
+        signal_count++;
+    
+    // Bollinger Bands bounce from upper band
+    if(price >= bb_upper[0] && iClose(_Symbol, PERIOD_M1, 1) < bb_upper[1])
+        signal_count++;
+    
+    // Price below key resistance
+    if(price < resistance_level && price > resistance_level - atr[0])
+        signal_count++;
+    
+    return signal_count >= InpSignalConfirmBars;
+}
+
+//+------------------------------------------------------------------+
+//| Open buy position                                               |
+//+------------------------------------------------------------------+
+void OpenBuyPosition()
+{
+    double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double sl = price - (InpStopLoss * atr[0]);
+    double tp = price + (InpProfitTarget * atr[0]);
+    double lots = CalculateLotSize(sl);
+    
+    // Normalize prices
+    sl = NormalizeDouble(sl, _Digits);
+    tp = NormalizeDouble(tp, _Digits);
+    
+    if(trade.Buy(lots, _Symbol, price, sl, tp, "XAUUSD_Buy"))
+    {
+        Print("Buy order opened: Price=", price, " SL=", sl, " TP=", tp, " Lots=", lots);
+        trades_today++;
+    }
+    else
+    {
+        Print("Failed to open buy order. Error: ", GetLastError());
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Open sell position                                              |
+//+------------------------------------------------------------------+
+void OpenSellPosition()
+{
+    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double sl = price + (InpStopLoss * atr[0]);
+    double tp = price - (InpProfitTarget * atr[0]);
+    double lots = CalculateLotSize(sl);
+    
+    // Normalize prices
+    sl = NormalizeDouble(sl, _Digits);
+    tp = NormalizeDouble(tp, _Digits);
+    
+    if(trade.Sell(lots, _Symbol, price, sl, tp, "XAUUSD_Sell"))
+    {
+        Print("Sell order opened: Price=", price, " SL=", sl, " TP=", tp, " Lots=", lots);
+        trades_today++;
+    }
+    else
+    {
+        Print("Failed to open sell order. Error: ", GetLastError());
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Calculate optimal lot size                                      |
+//+------------------------------------------------------------------+
+double CalculateLotSize(double stop_loss)
+{
+    if(!InpAutoLotSize) return InpLots;
+    
+    double current_price = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) + SymbolInfoDouble(_Symbol, SYMBOL_BID)) / 2;
+    double sl_distance = MathAbs(current_price - stop_loss);
+    
+    if(sl_distance == 0) return InpLots;
+    
+    double risk_amount = account.Balance() * InpRiskPercent / 100.0;
     double tick_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
     double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-
-    if (tick_value == 0 || tick_size == 0) {
-        Print("Error: Tick value or tick size is zero. Cannot calculate lot size.");
-        return 0.0;
-    }
-
-    double pip_value_per_lot = tick_value / tick_size * GetSymbolPipSize();
-
-    if (pip_value_per_lot == 0) {
-        Print("Error: Pip value per lot is zero. Cannot calculate lot size.");
-        return 0.0;
-    }
-
-    double lot_size = risk_amount / (stop_loss_pips * pip_value_per_lot);
-
-    // Normalize lot size to minimum and maximum allowed by broker/symbol
+    
+    if(tick_value == 0 || tick_size == 0) return InpLots;
+    
+    double money_per_pip = tick_value / tick_size;
+    double pips_at_risk = sl_distance / _Point;
+    double lots = risk_amount / (money_per_pip * pips_at_risk);
+    
+    // Apply position size limits
     double min_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
     double max_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-    double step_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-
-    // Adjust lot_size to be a multiple of step_lot and within min/max bounds
-    lot_size = floor(lot_size / step_lot) * step_lot; // Round down to the nearest step
+    double lot_step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
     
-    if(lot_size < min_lot)
-        lot_size = min_lot;
-    if(lot_size > max_lot)
-        lot_size = max_lot;
+    lots = MathMax(lots, min_lot);
+    lots = MathMin(lots, max_lot);
+    lots = NormalizeDouble(lots / lot_step, 0) * lot_step;
+    
+    return lots;
+}
 
-    return lot_size;
+//+------------------------------------------------------------------+
+//| Manage existing positions                                       |
+//+------------------------------------------------------------------+
+void ManagePositions()
+{
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(!position.SelectByIndex(i)) continue;
+        if(position.Symbol() != _Symbol || position.Magic() != InpMagicNumber) continue;
+        
+        // Apply break even
+        if(InpUseBreakEven)
+        {
+            ApplyBreakEven();
+        }
+        
+        // Apply trailing stop
+        if(InpUseTrailingStop)
+        {
+            ApplyTrailingStop();
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Apply break even logic                                          |
+//+------------------------------------------------------------------+
+void ApplyBreakEven()
+{
+    double open_price = position.PriceOpen();
+    double current_price = (position.PositionType() == POSITION_TYPE_BUY) ? 
+                          SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
+                          SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    
+    double profit_pips = 0;
+    if(position.PositionType() == POSITION_TYPE_BUY)
+        profit_pips = (current_price - open_price) / _Point;
+    else
+        profit_pips = (open_price - current_price) / _Point;
+    
+    if(profit_pips >= InpBreakEvenPips)
+    {
+        double new_sl = open_price;
+        if(MathAbs(position.StopLoss() - new_sl) > _Point)
+        {
+            trade.PositionModify(position.Ticket(), new_sl, position.TakeProfit());
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Apply trailing stop logic                                       |
+//+------------------------------------------------------------------+
+void ApplyTrailingStop()
+{
+    double open_price = position.PriceOpen();
+    double current_price = (position.PositionType() == POSITION_TYPE_BUY) ? 
+                          SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
+                          SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    
+    double profit_pips = 0;
+    if(position.PositionType() == POSITION_TYPE_BUY)
+        profit_pips = (current_price - open_price) / _Point;
+    else
+        profit_pips = (open_price - current_price) / _Point;
+    
+    if(profit_pips >= InpTrailingStart)
+    {
+        double new_sl = 0;
+        if(position.PositionType() == POSITION_TYPE_BUY)
+        {
+            new_sl = current_price - (InpTrailingStep * _Point);
+            if(new_sl > position.StopLoss() + (InpTrailingStep * _Point))
+            {
+                trade.PositionModify(position.Ticket(), new_sl, position.TakeProfit());
+            }
+        }
+        else
+        {
+            new_sl = current_price + (InpTrailingStep * _Point);
+            if(new_sl < position.StopLoss() - (InpTrailingStep * _Point) || position.StopLoss() == 0)
+            {
+                trade.PositionModify(position.Ticket(), new_sl, position.TakeProfit());
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Update daily trading statistics                                 |
+//+------------------------------------------------------------------+
+void UpdateDailyStats()
+{
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    
+    datetime today = StructToTime(dt);
+    today = today - (dt.hour * 3600 + dt.min * 60 + dt.sec); // Start of day
+    
+    if(last_trade_date != today)
+    {
+        trades_today = 0;
+        daily_profit = 0.0;
+        last_trade_date = today;
+    }
+    
+    // Calculate current daily profit
+    daily_profit = 0.0;
+    for(int i = 0; i < PositionsTotal(); i++)
+    {
+        if(!position.SelectByIndex(i)) continue;
+        if(position.Symbol() != _Symbol || position.Magic() != InpMagicNumber) continue;
+        daily_profit += position.Profit();
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Check session times                                             |
+//+------------------------------------------------------------------+
+void CheckSessionTimes()
+{
+    // This function can be expanded to handle news filters
+    // and other time-based restrictions
+}
+
+//+------------------------------------------------------------------+
+//| Expert advisor optimization function                            |
+//+------------------------------------------------------------------+
+double OnTester()
+{
+    double profit = TesterStatistics(STAT_PROFIT);
+    double dd = TesterStatistics(STAT_BALANCE_DD_PERCENT);
+    
+    if(dd == 0) return 0;
+    
+    return profit / dd; // Profit factor / Drawdown ratio
 }
